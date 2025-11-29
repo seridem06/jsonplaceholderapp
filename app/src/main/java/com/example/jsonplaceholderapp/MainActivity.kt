@@ -1,5 +1,6 @@
 package com.example.jsonplaceholderapp
 
+import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -13,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.jsonplaceholderapp.adapter.PostAdapter
 import com.example.jsonplaceholderapp.model.Post
 import com.example.jsonplaceholderapp.viewmodel.PostViewModel
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 
 class MainActivity : AppCompatActivity() {
 
@@ -20,33 +22,33 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var tvEmpty: TextView
-    private lateinit var adapter: PostAdapter
-
-    // Campos del formulario
     private lateinit var etSearch: EditText
     private lateinit var btnSearch: ImageButton
-    private lateinit var etId: EditText
-    private lateinit var etUserId: EditText
-    private lateinit var etTitle: EditText
-    private lateinit var etBody: EditText
-    private lateinit var btnSave: Button
-    private lateinit var btnDelete: Button
-
-    private var selectedPost: Post? = null
+    private lateinit var fabAddPost: FloatingActionButton
+    private lateinit var adapter: PostAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        Log.d("MainActivity", "🎬 onCreate iniciado")
+        Log.d("MainActivity", "🎬 Iniciando aplicación")
 
         initViews()
         setupRecyclerView()
         setupViewModel()
         setupListeners()
 
-        // Cargar datos desde la API
-        Log.d("MainActivity", "📥 Solicitando posts...")
+        // Mostrar mensaje de carga
+        Toast.makeText(this, "Cargando posts desde API...", Toast.LENGTH_SHORT).show()
+
+        // Cargar posts
+        viewModel.fetchAllPosts()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Recargar posts al volver de DetailActivity
+        Log.d("MainActivity", "🔄 Recargando posts...")
         viewModel.fetchAllPosts()
     }
 
@@ -56,55 +58,53 @@ class MainActivity : AppCompatActivity() {
         tvEmpty = findViewById(R.id.tvEmpty)
         etSearch = findViewById(R.id.etSearch)
         btnSearch = findViewById(R.id.btnSearch)
-        etId = findViewById(R.id.etId)
-        etUserId = findViewById(R.id.etUserId)
-        etTitle = findViewById(R.id.etTitle)
-        etBody = findViewById(R.id.etBody)
-        btnSave = findViewById(R.id.btnSave)
-        btnDelete = findViewById(R.id.btnDelete)
-
-        Log.d("MainActivity", "✅ Vistas inicializadas")
+        fabAddPost = findViewById(R.id.fabAddPost)
     }
 
     private fun setupRecyclerView() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         adapter = PostAdapter(emptyList()) { post ->
-            onPostSelected(post)
+            Log.d("MainActivity", "👆 Click en post: ${post.id}")
+            openDetailActivity(post)
         }
         recyclerView.adapter = adapter
-        Log.d("MainActivity", "✅ RecyclerView configurado")
     }
 
     private fun setupViewModel() {
         viewModel = ViewModelProvider(this)[PostViewModel::class.java]
 
         viewModel.posts.observe(this) { posts ->
-            Log.d("MainActivity", "📋 Posts recibidos en UI: ${posts.size}")
-            adapter.updatePosts(posts)
-            recyclerView.visibility = View.VISIBLE
-            tvEmpty.visibility = View.GONE
+            Log.d("MainActivity", "📋 ${posts.size} posts recibidos")
 
-            // Seleccionar automáticamente el primer post
-            if (posts.isNotEmpty()) {
-                onPostSelected(posts[0])
+            if (posts.isEmpty()) {
+                tvEmpty.text = "No hay posts disponibles"
+                tvEmpty.visibility = View.VISIBLE
+                recyclerView.visibility = View.GONE
+            } else {
+                adapter.updatePosts(posts)
+                recyclerView.visibility = View.VISIBLE
+                tvEmpty.visibility = View.GONE
+                Toast.makeText(this, "${posts.size} posts cargados", Toast.LENGTH_SHORT).show()
             }
         }
 
         viewModel.loading.observe(this) { isLoading ->
             Log.d("MainActivity", "⏳ Loading: $isLoading")
             progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
-            recyclerView.visibility = if (isLoading) View.GONE else View.VISIBLE
+
+            if (isLoading) {
+                recyclerView.visibility = View.GONE
+                tvEmpty.visibility = View.GONE
+            }
         }
 
         viewModel.error.observe(this) { errorMessage ->
             Log.e("MainActivity", "❌ Error: $errorMessage")
-            tvEmpty.text = errorMessage
+            tvEmpty.text = "Error: $errorMessage\n\nVerifica tu conexión a Internet"
             tvEmpty.visibility = View.VISIBLE
             recyclerView.visibility = View.GONE
             Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
         }
-
-        Log.d("MainActivity", "✅ ViewModel configurado")
     }
 
     private fun setupListeners() {
@@ -121,60 +121,31 @@ class MainActivity : AppCompatActivity() {
             adapter.filter(etSearch.text.toString())
         }
 
-        // Botones
-        btnSave.setOnClickListener {
-            savePost()
-        }
-
-        btnDelete.setOnClickListener {
-            deletePost()
+        // Botón flotante para crear nuevo post
+        fabAddPost.setOnClickListener {
+            createNewPost()
         }
     }
 
-    private fun onPostSelected(post: Post) {
-        Log.d("MainActivity", "🎯 Post seleccionado: ${post.id}")
-        selectedPost = post
-        etId.setText(post.id.toString())
-        etUserId.setText(post.userId.toString())
-        etTitle.setText(post.title)
-        etBody.setText(post.body)
-
-        Toast.makeText(this, "Post ${post.id} seleccionado", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun savePost() {
-        if (selectedPost == null) {
-            Toast.makeText(this, "Selecciona un post primero", Toast.LENGTH_SHORT).show()
-            return
+    private fun openDetailActivity(post: Post) {
+        Log.d("MainActivity", "🚀 Abriendo detalles del post ${post.id}")
+        val intent = Intent(this, DetailActivity::class.java).apply {
+            putExtra("POST_ID", post.id)
+            putExtra("POST_USER_ID", post.userId)
+            putExtra("POST_TITLE", post.title)
+            putExtra("POST_BODY", post.body)
         }
-
-        val updatedPost = Post(
-            id = etId.text.toString().toIntOrNull() ?: 0,
-            userId = etUserId.text.toString().toIntOrNull() ?: 0,
-            title = etTitle.text.toString(),
-            body = etBody.text.toString()
-        )
-
-        Log.d("MainActivity", "💾 Guardando post: ${updatedPost.id}")
-        Toast.makeText(this, "Post ${updatedPost.id} guardado (simulado)", Toast.LENGTH_SHORT).show()
+        startActivity(intent)
     }
 
-    private fun deletePost() {
-        if (selectedPost == null) {
-            Toast.makeText(this, "Selecciona un post primero", Toast.LENGTH_SHORT).show()
-            return
+    private fun createNewPost() {
+        Log.d("MainActivity", "➕ Creando nuevo post")
+        val intent = Intent(this, DetailActivity::class.java).apply {
+            putExtra("POST_ID", 0) // Nuevo post
+            putExtra("POST_USER_ID", 1)
+            putExtra("POST_TITLE", "")
+            putExtra("POST_BODY", "")
         }
-
-        Log.d("MainActivity", "🗑️ Eliminando post: ${selectedPost?.id}")
-        Toast.makeText(this, "Post ${selectedPost?.id} eliminado (simulado)", Toast.LENGTH_SHORT).show()
-        clearForm()
-    }
-
-    private fun clearForm() {
-        selectedPost = null
-        etId.setText("")
-        etUserId.setText("")
-        etTitle.setText("")
-        etBody.setText("")
+        startActivity(intent)
     }
 }
